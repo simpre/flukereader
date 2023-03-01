@@ -1,48 +1,54 @@
 #! /usr/bin/env python3
 
-import argparse, serial, time, datetime, scipy.signal, numpy, math, copy, textwrap, os
+import serial, argparse, time, datetime, scipy.signal, numpy, math, copy, textwrap, os
+import json
+import matplotlib
+import matplotlib.pyplot as plt
+
+
 
 def processArguments():
     parser = argparse.ArgumentParser(description='Talk to a Fluke ScopeMeter.')
 
     parser.add_argument(
-            '-p',
-            '--port',
-            default='/dev/ttyUSB0',
-            help='serial port name (/dev/ttyS0)')
+        '-p',
+        '--port',
+        default='/dev/ttyUSB0',
+        help='serial port name (/dev/ttyS0)')
 
     parser.add_argument(
-            '-i',
-            '--identify',
-            action='store_true',
-            help='get identity of ScopeMeter')
+        '-i',
+        '--identify',
+        action='store_true',
+        help='get identity of ScopeMeter')
 
     parser.add_argument(
-            '-d',
-            '--datetime',
-            action='store_true',
-            help='set the date/time of the ScopeMeter')
+        '-d',
+        '--datetime',
+        action='store_true',
+        help='set the date/time of the ScopeMeter')
 
     parser.add_argument(
-            '-s',
-            '--screenshot',
-            action='store_true',
-            help='get a screenshot from the ScopeMeter')
+        '-s',
+        '--screenshot',
+        action='store_true',
+        help='get a screenshot from the ScopeMeter')
 
     parser.add_argument(
-            '-t',
-            '--tex',
-            action='store_true',
-            help='Generate a tex report of results')
+        '-t',
+        '--tex',
+        action='store_true',
+        help='Generate a tex report of results')
 
     parser.add_argument(
-            '-l',
-            '--html',
-            action='store_true',
-            help='Generate an html report of results')
+        '-l',
+        '--html',
+        action='store_true',
+        help='Generate an html report of results')
 
     arguments = parser.parse_args()
     return arguments
+
 
 def sendCommand(port, command, timeout=True):
     data = bytearray(command.encode("ascii"))
@@ -57,7 +63,7 @@ def sendCommand(port, command, timeout=True):
             exit(1)
         else:
             return False
-    
+
     if ack[1] != ord('\r'):
         print("error: did not receive CR after acknowledgement code")
         exit(1)
@@ -76,12 +82,13 @@ def sendCommand(port, command, timeout=True):
         print("error: Communication error")
     else:
         print(
-                "error: Unknown error code ("
-                +str(code)
-                +") in command acknowledgement")
+            "error: Unknown error code ("
+            + str(code)
+            + ") in command acknowledgement")
     exit(1)
 
     return True
+
 
 def initializePort(portName):
     print("Opening and configuring serial port...", end="", flush=True)
@@ -96,6 +103,7 @@ def initializePort(portName):
     print("done")
 
     return port
+
 
 def identify(port):
     print("Getting identity of ScopeMeter...", end="", flush=True)
@@ -119,33 +127,38 @@ def identify(port):
     date = time.strptime(identity[2].decode(), "%Y-%m-%d")
     languages = identity[3].decode()
     print("done")
-    print("     Model: "+model)
-    print("   Version: "+firmware)
-    print("Build Date: "+time.strftime("%B %d, %Y", date))
+    print("     Model: " + model)
+    print("   Version: " + firmware)
+    print("Build Date: " + time.strftime("%B %d, %Y", date))
+
 
 def dateTime(port):
-    datetime = time.localtime(time.time()+1)
+    datetime = time.localtime(time.time() + 1)
     print("Setting time of ScopeMeter...", end="", flush=True)
-    sendCommand(port, "WT "+time.strftime("%H,%M,%S", datetime))
+    sendCommand(port, "WT " + time.strftime("%H,%M,%S", datetime))
     print("done")
     print("Setting date of ScopeMeter...", end="", flush=True)
-    sendCommand(port, "WD "+time.strftime("%Y,%m,%d", datetime))
+    sendCommand(port, "WD " + time.strftime("%Y,%m,%d", datetime))
     print("done")
+
 
 def getUInt(data):
     return int.from_bytes(data, byteorder='big', signed=False)
 
+
 def getInt(data):
     return int.from_bytes(data, byteorder='big', signed=True)
+
 
 def getFloat(data):
     mantissa = getInt(data[0:2])
     exponent = getInt(data[2:3])
 
-    return float(mantissa * 10.0**exponent)
+    return float(mantissa * 10.0 ** exponent)
+
 
 def getHeader(port, intSize):
-    dataSize = 3+intSize
+    dataSize = 3 + intSize
     data = port.read(dataSize)
     if len(data) != dataSize:
         print("error: header reception timed out")
@@ -155,9 +168,10 @@ def getHeader(port, intSize):
         exit(1)
 
     header = int(data[2])
-    size = getUInt(data[3:3+intSize])
+    size = getUInt(data[3:3 + intSize])
 
     return (header, size)
+
 
 def getData(port, size):
     size += 1
@@ -169,6 +183,7 @@ def getData(port, size):
         print("error: checksum failed")
         exit(1)
     return data[:-1]
+
 
 def getDecimal(port, sep=False):
     # Now get the number
@@ -196,7 +211,7 @@ def getDecimal(port, sep=False):
 
     if floating:
         number = float(number)
-    else:   
+    else:
         number = int(number)
 
     if sep != False:
@@ -206,6 +221,7 @@ def getDecimal(port, sep=False):
         return number
     return (number, separator)
 
+
 def checksum(data, check):
     checksum = 0
     for byte in data:
@@ -214,10 +230,47 @@ def checksum(data, check):
 
     return (checksum == check)
 
+
+def save_to_json(waveform):
+    """"
+    Saves the waveform data as Json File
+    """
+    # open in exclusive mode to prevent overwriting existing files
+    with open("waveform.json", "x") as f:
+        json.dump(waveform, f)
+
+
+def load_waveform_from_json(file_path):
+    """
+    Loads a waveform object from a JSON file.
+
+    Parameters:
+    file_path (str): The path to the JSON file.
+
+    Returns:
+    waveform object
+    """
+    with open(file_path, "r") as f:
+        waveformobj = json.load(f)
+    return waveformobj
+
+
+def plot_waveform(waveform):
+    """
+    TBD
+
+    """
+    plt.ion()
+    fig, ax = plt.subplots()
+    ax.plot(waveform.samples[0], waveform.samples[1])
+    plt.draw()
+    plt.pause(0.1)
+    plt.show()
+
 def screenshot(port):
     print("Downloading screenshot from ScopeMeter...", end="", flush=True)
     sendCommand(port, "QP 0,12,B")
-    
+
     dataLength = getDecimal(port, ',')
 
     image = bytearray()
@@ -251,22 +304,23 @@ def screenshot(port):
 
         retries = 0
         image += data[:-2]
-        dataLength -= len(data)-2
+        dataLength -= len(data) - 2
 
-        if dataLength == 0 or (header&0x80) != 0:
-            if dataLength == 0 and (header&0x80) != 0:
+        if dataLength == 0 or (header & 0x80) != 0:
+            if dataLength == 0 and (header & 0x80) != 0:
                 break
             else:
                 print("error: mismatch in data received and header flag")
                 exit(1)
     print("done")
 
-    filename=time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())+".png"
-    print("Writing screenshot to "+filename+"...", end="", flush=True)
+    filename = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + ".png"
+    print("Writing screenshot to " + filename + "...", end="", flush=True)
     imageFile = open(filename, 'wb')
     imageFile.write(image)
     imageFile.close()
     print("done")
+
 
 class waveform_t:
     channel = ""
@@ -286,35 +340,38 @@ class waveform_t:
     filename = ""
     title = ""
 
+
 units = [
-        None,
-        "V",
-        "A",
-        "Ω",
-        "W",
-        "F",
-        "K",
-        "s",
-        "h",
-        "days",
-        "Hz",
-        "°",
-        "°C",
-        "°F",
-        "%",
-        "dBm 50 Ω",
-        "dBm 600 Ω",
-        "dBV",
-        "dBA",
-        "dBW",
-        "VAR",
-        "VA"]
+    None,
+    "V",
+    "A",
+    "Ω",
+    "W",
+    "F",
+    "K",
+    "s",
+    "h",
+    "days",
+    "Hz",
+    "°",
+    "°C",
+    "°F",
+    "%",
+    "dBm 50 Ω",
+    "dBm 600 Ω",
+    "dBV",
+    "dBA",
+    "dBW",
+    "VAR",
+    "VA"]
+
 
 class figure_t:
     title = ""
     filename = ""
     waveforms = []
     measurements = []
+
 
 def si(number, precision, unit):
     def prefix(degree):
@@ -329,13 +386,13 @@ def si(number, precision, unit):
     def degree(number):
         number = abs(number)
 
-        return int(math.floor(math.log10(number)/3))
-    
+        return int(math.floor(math.log10(number) / 3))
+
     if precision != 0:
         precision = math.ceil(
-                precision 
-                /10.0**math.floor(math.log10(precision))) \
-            *10.0**math.floor(math.log10(precision))    
+            precision
+            / 10.0 ** math.floor(math.log10(precision))) \
+                    * 10.0 ** math.floor(math.log10(precision))
 
     significantDigits = 0
     decimalPoints = 0
@@ -344,34 +401,35 @@ def si(number, precision, unit):
         degree_var = degree(number)
         if precision != 0:
             significantDigits = \
-                    math.floor(math.log10(number)) \
-                    -math.floor(math.log10(precision)) \
-                    +1
+                math.floor(math.log10(number)) \
+                - math.floor(math.log10(precision)) \
+                + 1
             significantDigits -= int(
-                    math.floor(
-                        math.log10(
-                            math.fabs(number/(1000.0 ** degree_var))
-                        )))+1
-            if significantDigits<0:
-                significantDigits=0
+                math.floor(
+                    math.log10(
+                        math.fabs(number / (1000.0 ** degree_var))
+                    ))) + 1
+            if significantDigits < 0:
+                significantDigits = 0
     else:
         degree_var = degree(precision)
-    
+
     precision = float(precision) / (1000.0 ** degree_var)
     number = float(number) / (1000.0 ** degree_var)
 
     if precision == 0:
         return "{:.0f} {:s}{:s}".format(
-                number,
-                prefix(degree_var),
-                unit)
+            number,
+            prefix(degree_var),
+            unit)
     else:
         return "({1:.{0:d}f} ± {2:.{0:d}f}) {3:s}{4:s}".format(
-                significantDigits,
-                number,
-                precision,
-                prefix(degree_var),
-                unit)
+            significantDigits,
+            number,
+            precision,
+            prefix(degree_var),
+            unit)
+
 
 def texify(string):
     string = string.replace('μ', '\\upmu ')
@@ -382,44 +440,46 @@ def texify(string):
     string[-1] = string[-1].split('/')
 
     newstring = []
-    if len(string[-1])==2:
+    if len(string[-1]) == 2:
         newstring.append("\\unitfrac")
         newstring.append("{{{:s}}}{{{:s}}}".format(string[-1][0], string[-1][1]))
     else:
         newstring.append("\\unit")
         newstring.append("{{{:s}}}".format(string[-1][0]))
 
-    if len(string)==2:
+    if len(string) == 2:
         newstring.insert(1, "[{:s}]".format(string[0]))
 
     return "".join(newstring)
 
+
 def formatSeconds(seconds):
-    totalSeconds=seconds;
+    totalSeconds = seconds;
 
-    days=int(math.floor(seconds/(60*60*24)))
-    seconds=seconds-days*60*60*24;
-    hours=int(math.floor(seconds/(60*60)))
-    seconds=seconds-hours*60*60;
-    minutes=int(math.floor(seconds/60))
-    seconds=seconds-minutes*60;
+    days = int(math.floor(seconds / (60 * 60 * 24)))
+    seconds = seconds - days * 60 * 60 * 24;
+    hours = int(math.floor(seconds / (60 * 60)))
+    seconds = seconds - hours * 60 * 60;
+    minutes = int(math.floor(seconds / 60))
+    seconds = seconds - minutes * 60;
 
-    output=""
-    if days>0:
-        output="{:d} days, ".format(days)
-    if hours>0:
-        output=output+"{:d} hours, ".format(hours)
-    if minutes>0:
-        output=output+"{:d} minutes, ".format(minutes)
-    
-    output=output+"{:.3f} seconds".format(seconds)
-    if totalSeconds>=60:
-        output=output+" ({:.3f} seconds)".format(totalSeconds)
+    output = ""
+    if days > 0:
+        output = "{:d} days, ".format(days)
+    if hours > 0:
+        output = output + "{:d} hours, ".format(hours)
+    if minutes > 0:
+        output = output + "{:d} minutes, ".format(minutes)
+
+    output = output + "{:.3f} seconds".format(seconds)
+    if totalSeconds >= 60:
+        output = output + " ({:.3f} seconds)".format(totalSeconds)
     return output
+
 
 def waveform(port, source):
     print("Downloading waveform admin data from ScopeMeter...", end="", flush=True)
-    sendCommand(port, "QW "+source)
+    sendCommand(port, "QW " + source)
 
     # Handle the administrative data
     header, size = getHeader(port, 2)
@@ -428,7 +488,7 @@ def waveform(port, source):
         print("error: admin data is a weird size ({:d})".format(size))
         exit(1)
 
-    #if header != 0:
+    # if header != 0:
     #    print("error: received admin data but no samples ({:d})".format(header))
     #    exit(1)
 
@@ -451,12 +511,12 @@ def waveform(port, source):
     waveform.delta_x = getFloat(data[24:27])
     waveform.y_at_0 = getFloat(data[27:30])
     waveform.timestamp = datetime.datetime(
-            int(data[33:37].decode('ascii')),
-            int(data[37:39].decode('ascii')),
-            int(data[39:41].decode('ascii')),
-            int(data[41:43].decode('ascii')),
-            int(data[43:45].decode('ascii')),
-            int(data[45:47].decode('ascii')))
+        int(data[33:37].decode('ascii')),
+        int(data[37:39].decode('ascii')),
+        int(data[39:41].decode('ascii')),
+        int(data[41:43].decode('ascii')),
+        int(data[43:45].decode('ascii')),
+        int(data[45:47].decode('ascii')))
 
     print("done")
     print("Downloading waveform sample data from ScopeMeter...", end="", flush=True)
@@ -469,7 +529,7 @@ def waveform(port, source):
 
     # Handle the sample data
     header, size = getHeader(port, 4)
-    #if header != 129:
+    # if header != 129:
     #    print("error: invalid header ({:d}) in sample data".format(header))
     #    exit(1)
     data = getData(port, size)
@@ -482,36 +542,36 @@ def waveform(port, source):
     print("Processing waveform sample data from ScopeMeter...", end="", flush=True)
 
     getNumber = getUInt
-    if data[0]&0b10000000 != 0:
+    if data[0] & 0b10000000 != 0:
         getNumber = getInt
-    sample_size =    data[0]&0b00000111
+    sample_size = data[0] & 0b00000111
     samples_per_sample = 1
 
-    if data[0]&0b01110000 == 0b01000000:
+    if data[0] & 0b01110000 == 0b01000000:
         samples_per_sample = 2
-    if data[0]&0b01110000 == 0b01100000:
+    if data[0] & 0b01110000 == 0b01100000:
         samples_per_sample = 3
-    if data[0]&0b01110000 == 0b01110000:
+    if data[0] & 0b01110000 == 0b01110000:
         if "trend" in waveform.trace_type:
             samples_per_sample = 3
         else:
             samples_per_sample = 2
 
     pointer = 1
-    overload = getNumber(data[pointer:pointer+sample_size])
+    overload = getNumber(data[pointer:pointer + sample_size])
     pointer += sample_size
-    underload = getNumber(data[pointer:pointer+sample_size])
+    underload = getNumber(data[pointer:pointer + sample_size])
     pointer += sample_size
-    invalid = getNumber(data[pointer:pointer+sample_size])
+    invalid = getNumber(data[pointer:pointer + sample_size])
     pointer += sample_size
-    nbr_of_samples = getUInt(data[pointer:pointer+2])
+    nbr_of_samples = getUInt(data[pointer:pointer + 2])
     pointer += 2
 
     waveform.samples = numpy.empty([nbr_of_samples, samples_per_sample])
-    
+
     for i in range(nbr_of_samples):
         for j in range(samples_per_sample):
-            sample = getNumber(data[pointer:pointer+sample_size])
+            sample = getNumber(data[pointer:pointer + sample_size])
             if sample == overload:
                 waveform.samples[i][j] = numpy.inf
             elif sample == underload:
@@ -519,7 +579,7 @@ def waveform(port, source):
             elif sample == invalid:
                 waveform.samples[i][j] = numpy.nan
             else:
-                waveform.samples[i][j] = y_zero + sample*y_resolution
+                waveform.samples[i][j] = y_zero + sample * y_resolution
             pointer += sample_size
 
     if pointer != size:
@@ -529,11 +589,12 @@ def waveform(port, source):
 
     return waveform
 
+
 def waveforms(port):
     waveforms = []
 
     waveform_type = -1
-    while waveform_type<0 or waveform_type>9:
+    while waveform_type < 0 or waveform_type > 9:
         print(" (a) single trace")
         print(" (b) single psd")
         print(" (c) single envelope")
@@ -545,37 +606,37 @@ def waveforms(port):
         print(" (i) dual power")
         print(" (j) quit")
         waveform_type = input("What type of waveform will this be? ")
-        waveform_type = ord(waveform_type[0])-ord('a')
+        waveform_type = ord(waveform_type[0]) - ord('a')
     if waveform_type == 9:
         return;
     waveform_count = 1
     if waveform_type > 3:
         waveform_count = 2
-    
+
     trace_type = ""
     source = "0"
-    if waveform_type%4<2:
+    if waveform_type % 4 < 2:
         source += '0'
         if waveform_type == 8:
             trace_type = 'power'
-        elif waveform_type%4==1:
+        elif waveform_type % 4 == 1:
             trace_type = 'psd'
         else:
             trace_type = 'trace'
-    elif waveform_type%4==2:
+    elif waveform_type % 4 == 2:
         source += '2'
         trace_type = 'envelope'
-    elif waveform_type%4==3:
+    elif waveform_type % 4 == 3:
         source += '1'
         trace_type = 'trend'
 
     # Let's get our raw waveforms
     for waveform_number in range(waveform_count):
-        source = "{:d}{:s}".format(waveform_number+1, source[1])
+        source = "{:d}{:s}".format(waveform_number + 1, source[1])
 
         data = waveform(port, source)
-        data.channel = chr(ord('A')+waveform_number)
-        if waveform_type%4<2:
+        data.channel = chr(ord('A') + waveform_number)
+        if waveform_type % 4 < 2:
             if data.samples.shape[1] == 2:
                 matching = True
                 for i in data.samples:
@@ -634,7 +695,7 @@ def waveforms(port):
         waveforms.append(data)
 
     # We are doing a power spectral density analysis
-    if waveform_type%4 == 1:
+    if waveform_type % 4 == 1:
         if waveform_type == 5:
             # Our values are in Watts here
             for i in data.samples[0]:
@@ -643,15 +704,15 @@ def waveforms(port):
         x = numpy.empty(waveforms[0].samples.shape[0])
         for i in range(x.shape[0]):
             x[i] = waveforms[0].samples[i][0]
-        segsize = int(min(int(2**math.floor(math.log2(len(x)))), 2048))
+        segsize = int(min(int(2 ** math.floor(math.log2(len(x)))), 2048))
         frequency, power = scipy.signal.welch(
-                x = x,
-                fs = 1.0/waveforms[0].delta_x,
-                window = "hamming",
-                nperseg = segsize,
-                noverlap = 3*segsize/4,
-                return_onesided = True)
-        
+            x=x,
+            fs=1.0 / waveforms[0].delta_x,
+            window="hamming",
+            nperseg=segsize,
+            noverlap=3 * segsize / 4,
+            return_onesided=True)
+
         data = waveform_t()
         data.window_type = "hamming"
         data.window_size = segsize
@@ -669,24 +730,24 @@ def waveforms(port):
         data.x_scale = None
         data.x_zero = frequency[0]
         data.y_at_0 = None
-        data.delta_x = (frequency[-1]-frequency[0])/(len(frequency)-1)
+        data.delta_x = (frequency[-1] - frequency[0]) / (len(frequency) - 1)
         data.timestamp = waveforms[0].timestamp
         data.samples = numpy.empty([power.shape[0], 1])
         for i in range(power.shape[0]):
-            data.samples[i][0] = 10*math.log10(power[i])
+            data.samples[i][0] = 10 * math.log10(power[i])
         waveforms.clear()
         waveforms.append(data)
 
     for i in range(len(waveforms)):
-        waveforms[i].filename=waveforms[i].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
-                + "_input-" + waveforms[i].channel \
-                + "_" + waveforms[i].trace_type.lower().replace(' ', '-') \
-                + "_" + waveforms[i].x_unit \
-                + "-vs-" + waveforms[i].y_unit.replace('/', 'per')
-        datFile = open(waveforms[i].filename+".dat", 'w')
+        waveforms[i].filename = waveforms[i].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
+                                + "_input-" + waveforms[i].channel \
+                                + "_" + waveforms[i].trace_type.lower().replace(' ', '-') \
+                                + "_" + waveforms[i].x_unit \
+                                + "-vs-" + waveforms[i].y_unit.replace('/', 'per')
+        datFile = open(waveforms[i].filename + ".dat", 'w')
         for j in range(waveforms[i].samples.shape[0]):
             datFile.write("{:.5e}".format(
-                waveforms[i].x_zero+j*waveforms[i].delta_x))
+                waveforms[i].x_zero + j * waveforms[i].delta_x))
             for k in range(waveforms[i].samples.shape[1]):
                 datFile.write(" {:.5e}".format(waveforms[i].samples[j][k]))
             datFile.write("\n")
@@ -696,6 +757,7 @@ def waveforms(port):
 
     return waveforms
 
+
 class measurement_t:
     source = ""
     units = ""
@@ -703,9 +765,10 @@ class measurement_t:
     name = ""
     precision = 0.0
 
+
 def measurement(port):
     measurement_type = -1
-    while measurement_type<0 or measurement_type>5:
+    while measurement_type < 0 or measurement_type > 5:
         print(" (a) single")
         print(" (b) first + second")
         print(" (c) first - second")
@@ -713,7 +776,7 @@ def measurement(port):
         print(" (e) first / second")
         print(" (f) quit")
         measurement_type = input("What type of measurement will this be? ")
-        measurement_type = ord(measurement_type[0])-ord('a')
+        measurement_type = ord(measurement_type[0]) - ord('a')
 
     if measurement_type == 5:
         return None
@@ -735,67 +798,67 @@ def measurement(port):
         input("measurement and press enter when ready")
 
         print(
-                "Downloading measurement metadata from ScopeMeter...",
-                end="",
-                flush=True)
+            "Downloading measurement metadata from ScopeMeter...",
+            end="",
+            flush=True)
         sendCommand(port, "QM")
 
         types = [
-                None,
-                "Mean",
-                "RMS",
-                "True RMS",
-                "Peak to Peak",
-                "Peak Maximum",
-                "Peak Minimum",
-                "Crest Factor",
-                "Period",
-                "Duty Cycle Negative",
-                "Duty Cycle Positive",
-                "Frequency",
-                "Pulse Width Negative",
-                "Pulse Width Positive",
-                "Phase",
-                "Diode",
-                "Continuity",
-                None,
-                "Reactive Power",
-                "Apparent Power",
-                "Real Power",
-                "Harmonic Reactive Power",
-                "Harmonic Apparent Power",
-                "Harmonic Real Power",
-                "Harmonic RMS",
-                "Displacement Power Factor",
-                "Total Power Factor",
-                "Total Harmonic Distortion",
-                "Total Harmonic Distortion with respect to Fundamental",
-                "K Factor (European)",
-                "K Factor (US)",
-                "Line Frequency",
-                "Vac PWM or Vac+dc PWM",
-                "Rise Time",
-                "Fall Time"]
+            None,
+            "Mean",
+            "RMS",
+            "True RMS",
+            "Peak to Peak",
+            "Peak Maximum",
+            "Peak Minimum",
+            "Crest Factor",
+            "Period",
+            "Duty Cycle Negative",
+            "Duty Cycle Positive",
+            "Frequency",
+            "Pulse Width Negative",
+            "Pulse Width Positive",
+            "Phase",
+            "Diode",
+            "Continuity",
+            None,
+            "Reactive Power",
+            "Apparent Power",
+            "Real Power",
+            "Harmonic Reactive Power",
+            "Harmonic Apparent Power",
+            "Harmonic Real Power",
+            "Harmonic RMS",
+            "Displacement Power Factor",
+            "Total Power Factor",
+            "Total Harmonic Distortion",
+            "Total Harmonic Distortion with respect to Fundamental",
+            "K Factor (European)",
+            "K Factor (US)",
+            "Line Frequency",
+            "Vac PWM or Vac+dc PWM",
+            "Rise Time",
+            "Fall Time"]
 
         nos = {
-                11: "Reading 1",
-                21: "Reading 2",
-                31: "Cursor 1 Amplitude",
-                41: "Cursor 2 Amplitude",
-                53: "Cursor Maximum Amplitude",
-                54: "Cursor Average Amplitude",
-                55: "Cursor Minimum Amplitude",
-                61: "Cursor Relative Amplitude",
-                71: "Cursor Relative Time"}
+            11: "Reading 1",
+            21: "Reading 2",
+            31: "Cursor 1 Amplitude",
+            41: "Cursor 2 Amplitude",
+            53: "Cursor Maximum Amplitude",
+            54: "Cursor Average Amplitude",
+            55: "Cursor Minimum Amplitude",
+            61: "Cursor Relative Amplitude",
+            71: "Cursor Relative Time"}
 
         sources = {
-                1: "Input A",
-                2: "Input B",
-                3: "Input C",
-                4: "Input D",
-                5: "External Input",
-                12: "Input A vs Input B",
-                21: "Input B vs Input A"}
+            1: "Input A",
+            2: "Input B",
+            3: "Input C",
+            4: "Input D",
+            5: "External Input",
+            12: "Input A vs Input B",
+            21: "Input B vs Input A"}
 
         class reading_t:
             no = 0
@@ -818,10 +881,10 @@ def measurement(port):
             reading.unit = getDecimal(port, ',')
             reading.thetype = getDecimal(port, ',')
             reading.pres = getDecimal(port, ',')
-            
+
             mantissa = getDecimal(port, 'E')
             exponent, separator = getDecimal(port)
-            reading.resolution = mantissa * 10.0**exponent
+            reading.resolution = mantissa * 10.0 ** exponent
 
             if reading.valid:
                 readings.append(reading)
@@ -842,18 +905,18 @@ def measurement(port):
         desired = desired.lower()
         desired = desired[0]
 
-        if ord('a') > ord(desired) or ord(desired) >= ord('a')+len(readings):
+        if ord('a') > ord(desired) or ord(desired) >= ord('a') + len(readings):
             print("error: answer is out of range")
             exit(1)
 
-        reading = readings[ord(desired)-ord('a')]
+        reading = readings[ord(desired) - ord('a')]
         measurement.source = sources[reading.source]
         measurement.unit = units[reading.unit]
         measurement.precision = reading.resolution
 
         print("Fetching reading from ScopeMeter...", end="", flush=True)
         sendCommand(port, "QM {:d}".format(reading.no))
-        measurement.value = getDecimal(port, 'E') * 10.0**getDecimal(port, '\r')
+        measurement.value = getDecimal(port, 'E') * 10.0 ** getDecimal(port, '\r')
         print("done")
 
         print("Result: {}".format(
@@ -886,14 +949,12 @@ def measurement(port):
                 else:
                     measurement.unit = first.unit + '/' + measurement.unit
             measurement.precision = value * (
-                    measurement.precision/measurement.value
-                    + first.precision/first.value)
+                    measurement.precision / measurement.value
+                    + first.precision / first.value)
             measurement.value = value
             if measurement.unit == '%':
                 measurement.value *= 100
                 measurement.precision *= 100
-
-
 
         print("Final Result: {}".format(
             si(measurement.value, measurement.precision, measurement.unit)))
@@ -902,6 +963,7 @@ def measurement(port):
 
     return measurement
 
+
 def measurements(port):
     print("\n***** Starting Measurements *****\n")
 
@@ -909,7 +971,7 @@ def measurements(port):
 
     while True:
         print("\n***** Doing Measurement #{:d} *****\n".format(
-            len(measurements)+1))
+            len(measurements) + 1))
         x = measurement(port)
         if x == None:
             break
@@ -917,6 +979,7 @@ def measurements(port):
             measurements.append(x)
 
     return measurements
+
 
 def figure(port):
     figure = figure_t()
@@ -926,9 +989,8 @@ def figure(port):
     figure.waveforms = waveforms(port)
     figure.measurements = measurements(port)
     figure.filename = \
-            figure.waveforms[0].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
-            + '_' + figure.title.replace(' ', '_').lower()
-
+        figure.waveforms[0].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
+        + '_' + figure.title.replace(' ', '_').lower()
 
     print("\n***** Figure “{:s}” *****".format(figure.title))
 
@@ -967,6 +1029,7 @@ def figure(port):
 
     return figure
 
+
 def figures(port):
     figures = []
     while True:
@@ -976,6 +1039,7 @@ def figures(port):
         else:
             figures.append(fig)
     return figures
+
 
 def tex(figs):
     try:
@@ -1008,28 +1072,28 @@ def tex(figs):
     for fig in figs:
         datFiles = []
         for waveform in fig.waveforms:
-            datFiles.append("../"+waveform.filename+'.dat')
+            datFiles.append("../" + waveform.filename + '.dat')
         makefile.write(textwrap.dedent('''\
         {0:s}.tex: {0:s}.gpi {1:s}
         \tgnuplot {0:s}.gpi
 
         '''.format(fig.filename, " ".join(datFiles))))
-        figFiles.append(fig.filename  +'.tex')
+        figFiles.append(fig.filename + '.tex')
 
-        plotFile = open(fig.filename+".gpi", 'w')
+        plotFile = open(fig.filename + ".gpi", 'w')
         plotFile.write(textwrap.dedent('''\
                 set term tikz size 4.75in,3.3in
                 set output '{:s}.tex'
         '''.format(fig.filename)))
-        if(fig.waveforms[0].x_unit == 'Hz'):
-            x_min = 10.0**(math.log10(
-                            fig.waveforms[0].x_zero
-                            +fig.waveforms[0].delta_x
-                            *fig.waveforms[0].samples.shape[0]
-                        )-3)
+        if (fig.waveforms[0].x_unit == 'Hz'):
+            x_min = 10.0 ** (math.log10(
+                fig.waveforms[0].x_zero
+                + fig.waveforms[0].delta_x
+                * fig.waveforms[0].samples.shape[0]
+            ) - 3)
             x_max = fig.waveforms[0].x_zero \
-                    +fig.waveforms[0].delta_x \
-                    *fig.waveforms[0].samples.shape[0]
+                    + fig.waveforms[0].delta_x \
+                    * fig.waveforms[0].samples.shape[0]
             plotFile.write(textwrap.dedent('''\
                     set xlabel "Frequency (Hz)"
                     set ylabel "Spectral Density (${:s}$)"
@@ -1042,19 +1106,19 @@ def tex(figs):
                     set xrange [{:e}:{:e}]
                     plot '../{:s}.dat' using 1:2 with lines lt 1 lc rgb 'black'
                     '''.format(
-                        texify(fig.waveforms[0].y_unit).replace("\\", "\\\\"),
-                        x_min,
-                        x_max,
-                        fig.waveforms[0].filename)))
+                texify(fig.waveforms[0].y_unit).replace("\\", "\\\\"),
+                x_min,
+                x_max,
+                fig.waveforms[0].filename)))
         else:
             x_scale = texify(si(
                 fig.waveforms[0].x_scale,
                 0,
-                fig.waveforms[0].x_unit+'/div')).replace("\\", "\\\\")
+                fig.waveforms[0].x_unit + '/div')).replace("\\", "\\\\")
             y_scale = [texify(si(
                 fig.waveforms[0].y_scale,
                 0,
-                fig.waveforms[0].y_unit+'/div'))]
+                fig.waveforms[0].y_unit + '/div'))]
             plotFile.write(textwrap.dedent('''\
                     set xlabel "Time (${:s}$)"
                     set xrange [{:e}:{:e}]
@@ -1069,24 +1133,24 @@ def tex(figs):
                     set parametric
                     unset key
                     '''.format(
-                        x_scale,
-                        fig.waveforms[0].x_zero,
-                        fig.waveforms[0].x_zero
-                            +fig.waveforms[0].x_divisions
-                            *fig.waveforms[0].x_scale,
-                        fig.waveforms[0].x_scale,
-                        fig.waveforms[0].y_at_0,
-                        fig.waveforms[0].y_at_0
-                            +fig.waveforms[0].y_divisions
-                            *fig.waveforms[0].y_scale,
-                        fig.waveforms[0].y_scale)))
+                x_scale,
+                fig.waveforms[0].x_zero,
+                fig.waveforms[0].x_zero
+                + fig.waveforms[0].x_divisions
+                * fig.waveforms[0].x_scale,
+                fig.waveforms[0].x_scale,
+                fig.waveforms[0].y_at_0,
+                fig.waveforms[0].y_at_0
+                + fig.waveforms[0].y_divisions
+                * fig.waveforms[0].y_scale,
+                fig.waveforms[0].y_scale)))
             if len(fig.waveforms) == 1:
                 plotFile.write(textwrap.dedent('''\
                         set ylabel "{:s} (${:s}$)"
                         '''.format(
-                            fig.waveforms[0].title,
-                            y_scale[0].replace("\\", "\\\\"))))
-                if fig.waveforms[0].samples.shape[1]==1:
+                    fig.waveforms[0].title,
+                    y_scale[0].replace("\\", "\\\\"))))
+                if fig.waveforms[0].samples.shape[1] == 1:
                     plotFile.write(textwrap.dedent('''\
                             plot '../{:s}.dat' using 1:2 with lines lt 1 lc rgb 'black'
                             '''.format(fig.waveforms[0].filename)))
@@ -1095,28 +1159,30 @@ def tex(figs):
                             plot '../{:s}.dat' using 1:2:3 with filledcurves fc rgb 'black'
                             '''.format(fig.waveforms[0].filename)))
             else:
-                scalers = [1, fig.waveforms[0].y_scale/fig.waveforms[1].y_scale]
+                scalers = [1, fig.waveforms[0].y_scale / fig.waveforms[1].y_scale]
                 y_scale.append(texify(si(
                     fig.waveforms[1].y_scale,
                     0,
-                    fig.waveforms[1].y_unit+'/div')))
+                    fig.waveforms[1].y_unit + '/div')))
                 wavs = []
                 colors = ['red', 'blue']
                 for i in range(2):
-                    if fig.waveforms[i].samples.shape[1]==1:
-                        wavs.append("'../{:s}.dat' using ($1):($2*{:e}) with lines lt 1 lc rgb '{:s}' title '{:s} (${:s}$)'".format(
-                            fig.waveforms[i].filename,
-                            scalers[i],
-                            colors[i],
-                            fig.waveforms[i].title,
-                            y_scale[i]))
+                    if fig.waveforms[i].samples.shape[1] == 1:
+                        wavs.append(
+                            "'../{:s}.dat' using ($1):($2*{:e}) with lines lt 1 lc rgb '{:s}' title '{:s} (${:s}$)'".format(
+                                fig.waveforms[i].filename,
+                                scalers[i],
+                                colors[i],
+                                fig.waveforms[i].title,
+                                y_scale[i]))
                     else:
-                        wavs.append("'../{0:s}.dat' using ($1):($2*{1:e}):($3*{1:e}) with filledcurves fc rgb '{2:s}' title '{3:s} (${4:s}$)'".format(
-                            fig.waveforms[i].filename,
-                            scalers[i],
-                            colors[i],
-                            fig.waveforms[i].title,
-                            y_scale[i]))
+                        wavs.append(
+                            "'../{0:s}.dat' using ($1):($2*{1:e}):($3*{1:e}) with filledcurves fc rgb '{2:s}' title '{3:s} (${4:s}$)'".format(
+                                fig.waveforms[i].filename,
+                                scalers[i],
+                                colors[i],
+                                fig.waveforms[i].title,
+                                y_scale[i]))
                 plotFile.write(textwrap.dedent('''\
                         set key right top spacing 2
                         set ylabel "Amplitude"
@@ -1126,36 +1192,36 @@ def tex(figs):
         plotFile.close()
         texFile.write(textwrap.dedent(r'''        \begin{figure}[p]
             \begin{center}
-                \include{''')+fig.filename+textwrap.dedent(r'''        }
+                \include{''') + fig.filename + textwrap.dedent(r'''        }
                 \begin{tabular}{ | r | l | }
                     \hline
         '''))
         texFile.write(r"            Aquisition Time & "
-                + fig.waveforms[0].timestamp.strftime("%B %d, %Y at %H:%M:%S")
-                + " \\\\\n")
+                      + fig.waveforms[0].timestamp.strftime("%B %d, %Y at %H:%M:%S")
+                      + " \\\\\n")
         if fig.waveforms[0].x_unit == 'Hz':
             texFile.write(
-                    r"            Window Type & "
-                    + fig.waveforms[0].window_type
-                    + " \\\\\n"
-                    + "            Window Size & {:d}".format(
-                        fig.waveforms[0].window_size)
-                    + " \\\\\n"
-                    )
+                r"            Window Type & "
+                + fig.waveforms[0].window_type
+                + " \\\\\n"
+                + "            Window Size & {:d}".format(
+                    fig.waveforms[0].window_size)
+                + " \\\\\n"
+            )
 
         for measurement in fig.measurements:
             texFile.write(
-                    r"            "
-                    +measurement.name
-                    +r" & $"
-                    +texify(si(
-                        measurement.value,
-                        measurement.precision,
-                        measurement.unit))
-                    + '$ \\\\\n')
+                r"            "
+                + measurement.name
+                + r" & $"
+                + texify(si(
+                    measurement.value,
+                    measurement.precision,
+                    measurement.unit))
+                + '$ \\\\\n')
         texFile.write(r'''            \hline
         \end{tabular}
-        \caption{'''+fig.title+textwrap.dedent(r'''        }
+        \caption{''' + fig.title + textwrap.dedent(r'''        }
             \end{center}
         \end{figure}
         '''))
@@ -1172,6 +1238,7 @@ def tex(figs):
     texFile.write(r"\end{document}")
     texFile.close()
     os.chdir("..")
+
 
 def html(figs):
     try:
@@ -1198,29 +1265,29 @@ def html(figs):
     for fig in figs:
         datFiles = []
         for waveform in fig.waveforms:
-            datFiles.append("../"+waveform.filename+'.dat')
+            datFiles.append("../" + waveform.filename + '.dat')
         makefile.write(textwrap.dedent('''\
         {0:s}.svg: {0:s}.gpi {1:s}
         \tgnuplot {0:s}.gpi
 
         '''.format(fig.filename, " ".join(datFiles))))
-        figFiles.append(fig.filename  +'.svg')
+        figFiles.append(fig.filename + '.svg')
 
-        plotFile = open(fig.filename+".gpi", 'w')
+        plotFile = open(fig.filename + ".gpi", 'w')
         plotFile.write(textwrap.dedent('''\
                 set term svg enhanced size 608,430 font "Serif"
                 set output '{:s}.svg'
                 set encoding utf8
         '''.format(fig.filename)))
-        if(fig.waveforms[0].x_unit == 'Hz'):
-            x_min = 10.0**(math.log10(
-                            fig.waveforms[0].x_zero
-                            +fig.waveforms[0].delta_x
-                            *fig.waveforms[0].samples.shape[0]
-                        )-3)
+        if (fig.waveforms[0].x_unit == 'Hz'):
+            x_min = 10.0 ** (math.log10(
+                fig.waveforms[0].x_zero
+                + fig.waveforms[0].delta_x
+                * fig.waveforms[0].samples.shape[0]
+            ) - 3)
             x_max = fig.waveforms[0].x_zero \
-                    +fig.waveforms[0].delta_x \
-                    *fig.waveforms[0].samples.shape[0]
+                    + fig.waveforms[0].delta_x \
+                    * fig.waveforms[0].samples.shape[0]
             plotFile.write(textwrap.dedent('''\
                     set xlabel "Frequency (Hz)"
                     set ylabel "Spectral Density ({:s})"
@@ -1233,19 +1300,19 @@ def html(figs):
                     set xrange [{:e}:{:e}]
                     plot '../{:s}.dat' using 1:2 with lines lt 1 lc rgb 'black'
                     '''.format(
-                        fig.waveforms[0].y_unit,
-                        x_min,
-                        x_max,
-                        fig.waveforms[0].filename)))
+                fig.waveforms[0].y_unit,
+                x_min,
+                x_max,
+                fig.waveforms[0].filename)))
         else:
             x_scale = si(
                 fig.waveforms[0].x_scale,
                 0,
-                fig.waveforms[0].x_unit+'/div')
+                fig.waveforms[0].x_unit + '/div')
             y_scale = [si(
                 fig.waveforms[0].y_scale,
                 0,
-                fig.waveforms[0].y_unit+'/div')]
+                fig.waveforms[0].y_unit + '/div')]
             plotFile.write(textwrap.dedent('''\
                     set xlabel "Time ({:s})"
                     set xrange [{:e}:{:e}]
@@ -1260,24 +1327,24 @@ def html(figs):
                     set parametric
                     unset key
                     '''.format(
-                        x_scale,
-                        fig.waveforms[0].x_zero,
-                        fig.waveforms[0].x_zero
-                            +fig.waveforms[0].x_divisions
-                            *fig.waveforms[0].x_scale,
-                        fig.waveforms[0].x_scale,
-                        fig.waveforms[0].y_at_0,
-                        fig.waveforms[0].y_at_0
-                            +fig.waveforms[0].y_divisions
-                            *fig.waveforms[0].y_scale,
-                        fig.waveforms[0].y_scale)))
+                x_scale,
+                fig.waveforms[0].x_zero,
+                fig.waveforms[0].x_zero
+                + fig.waveforms[0].x_divisions
+                * fig.waveforms[0].x_scale,
+                fig.waveforms[0].x_scale,
+                fig.waveforms[0].y_at_0,
+                fig.waveforms[0].y_at_0
+                + fig.waveforms[0].y_divisions
+                * fig.waveforms[0].y_scale,
+                fig.waveforms[0].y_scale)))
             if len(fig.waveforms) == 1:
                 plotFile.write(textwrap.dedent('''\
                         set ylabel "{:s} ({:s})"
                         '''.format(
-                            fig.waveforms[0].title,
-                            y_scale[0])))
-                if fig.waveforms[0].samples.shape[1]==1:
+                    fig.waveforms[0].title,
+                    y_scale[0])))
+                if fig.waveforms[0].samples.shape[1] == 1:
                     plotFile.write(textwrap.dedent('''\
                             plot '../{:s}.dat' using 1:2 with lines lt 1 lc rgb 'black'
                             '''.format(fig.waveforms[0].filename)))
@@ -1286,28 +1353,30 @@ def html(figs):
                             plot '../{:s}.dat' using 1:2:3 with filledcurves fc rgb 'black'
                             '''.format(fig.waveforms[0].filename)))
             else:
-                scalers = [1, fig.waveforms[0].y_scale/fig.waveforms[1].y_scale]
+                scalers = [1, fig.waveforms[0].y_scale / fig.waveforms[1].y_scale]
                 y_scale.append(si(
                     fig.waveforms[1].y_scale,
                     0,
-                    fig.waveforms[1].y_unit+'/div'))
+                    fig.waveforms[1].y_unit + '/div'))
                 wavs = []
                 colors = ['red', 'blue']
                 for i in range(2):
-                    if fig.waveforms[i].samples.shape[1]==1:
-                        wavs.append("'../{:s}.dat' using ($1):($2*{:e}) with lines lt 1 lc rgb '{:s}' title '{:s} ({:s})'".format(
-                            fig.waveforms[i].filename,
-                            scalers[i],
-                            colors[i],
-                            fig.waveforms[i].title,
-                            y_scale[i]))
+                    if fig.waveforms[i].samples.shape[1] == 1:
+                        wavs.append(
+                            "'../{:s}.dat' using ($1):($2*{:e}) with lines lt 1 lc rgb '{:s}' title '{:s} ({:s})'".format(
+                                fig.waveforms[i].filename,
+                                scalers[i],
+                                colors[i],
+                                fig.waveforms[i].title,
+                                y_scale[i]))
                     else:
-                        wavs.append("'../{0:s}.dat' using ($1):($2*{1:e}):($3*{1:e}) with filledcurves fc rgb '{2:s}' title '{3:s} ({4:s})'".format(
-                            fig.waveforms[i].filename,
-                            scalers[i],
-                            colors[i],
-                            fig.waveforms[i].title,
-                            y_scale[i]))
+                        wavs.append(
+                            "'../{0:s}.dat' using ($1):($2*{1:e}):($3*{1:e}) with filledcurves fc rgb '{2:s}' title '{3:s} ({4:s})'".format(
+                                fig.waveforms[i].filename,
+                                scalers[i],
+                                colors[i],
+                                fig.waveforms[i].title,
+                                y_scale[i]))
                 plotFile.write(textwrap.dedent('''\
                         set key right top spacing 2
                         set ylabel "Amplitude"
@@ -1319,16 +1388,16 @@ def html(figs):
             <figure id="fig{:d}">\
             <img src="{:s}.svg" height="456" width="608" />\
             <table>'''.format(
-                figNum,
-                fig.filename)))
+            figNum,
+            fig.filename)))
         htmlFile.write(textwrap.dedent('''\
                 <tr>\
                 <td style="text-align: right">Aquisition Time</td>\
                 <td style="text-align: left">{:s}</td>\
                 </tr>\
                 '''.format(
-                    fig.waveforms[0].timestamp.strftime("%B %d, %Y at %H:%M:%S")
-                    )))
+            fig.waveforms[0].timestamp.strftime("%B %d, %Y at %H:%M:%S")
+        )))
         if fig.waveforms[0].x_unit == 'Hz':
             htmlFile.write(textwrap.dedent('''\
                     <tr>\
@@ -1340,8 +1409,8 @@ def html(figs):
                     <td style="text-align: left">{:d}</td>\
                     </tr>\
                     '''.format(
-                        fig.waveforms[0].window_type,
-                        fig.waveforms[0].window_size)))
+                fig.waveforms[0].window_type,
+                fig.waveforms[0].window_size)))
 
         for measurement in fig.measurements:
             htmlFile.write(textwrap.dedent('''\
@@ -1350,11 +1419,11 @@ def html(figs):
                     <td style="text-align: left">{:s}</td>\
                     </tr>\
                     '''.format(
-                        measurement.name,
-                        si(
-                            measurement.value,
-                            measurement.precision,
-                            measurement.unit))))
+                measurement.name,
+                si(
+                    measurement.value,
+                    measurement.precision,
+                    measurement.unit))))
 
         htmlFile.write(textwrap.dedent('''\
             </table>\
@@ -1376,6 +1445,7 @@ def html(figs):
     htmlFile.close()
     os.chdir("..")
 
+
 def execute(arguments, port):
     if arguments.identify:
         identify(port)
@@ -1392,6 +1462,7 @@ def execute(arguments, port):
             tex(figs)
         if arguments.html:
             html(figs)
+
 
 arguments = processArguments()
 port = initializePort(arguments.port)
