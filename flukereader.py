@@ -4,6 +4,9 @@ import serial, argparse, time, datetime, scipy.signal, numpy, math, copy, textwr
 import json
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import pickle
+
 
 
 
@@ -45,6 +48,12 @@ def processArguments():
         '--html',
         action='store_true',
         help='Generate an html report of results')
+
+    parser.add_argument(
+        '-k',
+        '--pickle',
+        action='store_true',
+        help='save results as pickle file ')
 
     arguments = parser.parse_args()
     return arguments
@@ -231,13 +240,21 @@ def checksum(data, check):
     return (checksum == check)
 
 
-def save_to_json(waveform):
+def save_to_pickle(data):
     """"
-    Saves the waveform data as Json File
+    Saves data as pickled file
     """
-    # open in exclusive mode to prevent overwriting existing files
-    with open("waveform.json", "x") as f:
-        json.dump(waveform, f)
+    with open("file_name.pickle", "wb") as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_from_pickle(file):
+    """"
+    Load Objects from pickled File
+    """
+    with open(file, "rb") as f:
+        return pickle.load(f )
+
 
 
 def load_waveform_from_json(file_path):
@@ -262,10 +279,14 @@ def plot_waveform(waveform):
     """
     plt.ion()
     fig, ax = plt.subplots()
-    ax.plot(waveform.samples[0], waveform.samples[1])
+    ax.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[1] for i in waveform.samples])
+    ax.set_xlabel(waveform.x_unit)
+    ax.set_ylabel(waveform.y_unit)
+    plt.grid(color = "k", linestyle = "-")
     plt.draw()
     plt.pause(0.1)
     plt.show()
+
 
 def screenshot(port):
     print("Downloading screenshot from ScopeMeter...", end="", flush=True)
@@ -655,6 +676,7 @@ def waveforms(port):
                 data.trace_type = "trace"
         else:
             data.trace_type = trace_type
+        plot_waveform(data)
         waveforms.append(data)
 
     # We are doing a dual channel power calculation
@@ -1456,6 +1478,10 @@ def execute(arguments, port):
     if arguments.screenshot:
         screenshot(port)
 
+    if arguments.pickle:
+        fig = figure(port)
+        save_to_pickle(fig)
+
     if arguments.tex or arguments.html:
         figs = figures(port)
         if arguments.tex:
@@ -1463,6 +1489,8 @@ def execute(arguments, port):
         if arguments.html:
             html(figs)
 
+
+test = load_from_pickle("testData_Square.pickle")
 
 arguments = processArguments()
 port = initializePort(arguments.port)
