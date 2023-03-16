@@ -256,6 +256,20 @@ def load_from_pickle(file):
         return pickle.load(f )
 
 
+def save_waveform_json(waveform, path):
+    """
+    :param waveform: waveform which should be stored
+    :param filename: path to file , if only a name is given it is saved to the current dir
+    :return: 
+    """
+    mod_waveform = waveform
+    mod_waveform.samples = mod_waveform.samples.tolist()
+    mod_waveform.timestamp = mod_waveform.timestamp.strftime("%d.%m.Y_%X")
+
+    with open(path, "x") as f:
+        json.dump(waveform, f, default=vars)
+
+
 
 def load_waveform_from_json(file_path):
     """
@@ -1491,6 +1505,7 @@ def execute(arguments, port):
 
 
 test = load_from_pickle("testData_Square.pickle")
+plot_waveform(test[1])
 
 arguments = processArguments()
 port = initializePort(arguments.port)
