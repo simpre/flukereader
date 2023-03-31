@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
-
+from matplotlib.ticker import EngFormatter # for make labels of the axis nice
+from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)# to make grid layout of the axis nice
 
 
 def processArguments():
@@ -101,7 +102,7 @@ def sendCommand(port, command, timeout=True):
 
 def initializePort(portName):
     print("Opening and configuring serial port...", end="", flush=True)
-    port = serial.Serial(portName, 1200, timeout=1)
+    port = serial.Serial(portName, 1200, timeout=5)
     print("done")
 
     print("Reconciling serial port baud rate...", end="", flush=True)
@@ -240,11 +241,11 @@ def checksum(data, check):
     return (checksum == check)
 
 
-def save_to_pickle(data):
+def save_to_pickle(data, filename ):
     """"
     Saves data as pickled file
     """
-    with open("file_name.pickle", "wb") as f:
+    with open(filename+".pickle", "x") as f:
         pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -293,13 +294,21 @@ def plot_waveform(waveform):
     """
     plt.ion()
     fig, ax = plt.subplots()
-    ax.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[1] for i in waveform.samples])
+    x_formatter = EngFormatter(unit = waveform.x_unit)
+    y_formatter = EngFormatter(unit = waveform.y_unit)
+    ax.xaxis.set_major_formatter(x_formatter)
+    ax.yaxis.set_major_formatter(y_formatter)
+    ax.xaxis.set_major_locator(MultipleLocator(waveform.x_scale))
+    ax.yaxis.set_major_locator(MultipleLocator(waveform.y_scale))
+    ax.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[0] for i in waveform.samples])
     ax.set_xlabel(waveform.x_unit)
     ax.set_ylabel(waveform.y_unit)
-    plt.grid(color = "k", linestyle = "-")
+    ax.grid(which='major', color='#CCCCCC', linestyle=':')
+    #plt.grid(color = "k", linestyle = "-")
     plt.draw()
     plt.pause(0.1)
-    plt.show()
+    print("Showing grabed Graph, to continue close matplotlib window")
+    plt.show(block=True)
 
 
 def screenshot(port):
@@ -1019,9 +1028,6 @@ def measurements(port):
 
 def figure(port):
     figure = figure_t()
-    figure.title = input("Enter figure title (blank to quit): ")
-    if len(figure.title) == 0:
-        return None
     figure.waveforms = waveforms(port)
     figure.measurements = measurements(port)
     figure.filename = \
@@ -1062,6 +1068,20 @@ def figure(port):
             valueLength,
             values[i]))
     print("└{1:─<{0:d}}┴{3:─<{2:d}}┘".format(nameLength, "", valueLength, ""))
+
+    #save Measurements to file
+    global filename
+    with open(filename + '.txt', 'a') as f:
+        f.write("Measurements: \n ")
+        f.write("\n***** Measurement Details *****")
+        f.write("┌{1:─<{0:d}}┬{3:─<{2:d}}┐".format(nameLength, "", valueLength, "")) #  here happend an error
+        for i in range(len(figure.measurements)):
+            f.write("│{1: >{0:d}}│{3: <{2:d}}│".format(
+                nameLength,
+                names[i],
+                valueLength,
+                values[i]))
+        f.write("└{1:─<{0:d}}┴{3:─<{2:d}}┘".format(nameLength, "", valueLength, ""))
 
     return figure
 
@@ -1482,6 +1502,7 @@ def html(figs):
     os.chdir("..")
 
 
+
 def execute(arguments, port):
     if arguments.identify:
         identify(port)
@@ -1493,8 +1514,39 @@ def execute(arguments, port):
         screenshot(port)
 
     if arguments.pickle:
+        global filename
+        with open(filename+'.txt' , 'a' ) as f:
+            f.write("Measurement Protocol: \n ")
+            # get Data of Measurementent Device:
+            sendCommand(port, "ID")
+            identity = bytearray()
+            while True:
+                byte = port.read()
+                if len(byte) != 1:
+                    print("error: timeout while receiving data")
+                    exit(1)
+                if byte[0] == ord('\r'):
+                    break;
+                identity.append(byte[0])
+
+            identity = identity.split(b';')
+            if len(identity) != 4:
+                print("error: unable to decode identity string")
+                exit(1)
+            model = identity[0].decode()
+            firmware = identity[1].decode()
+            date = time.strptime(identity[2].decode(), "%Y-%m-%d")
+            languages = identity[3].decode()
+            f.write("Model: " + model + "\n")
+            f.write("Version: " + firmware + "\n")
+            #usercomment about measurement
+            f.write("User Comment: \n {} \n".format(input("Comments about Measurement: ")))
+
         fig = figure(port)
-        save_to_pickle(fig)
+        save = input("Save Waveform data as pickle ?(blank to discard): ")
+        if len(save) == 0:
+            return None
+        save_to_pickle(fig,filename)
 
     if arguments.tex or arguments.html:
         figs = figures(port)
@@ -1503,10 +1555,7 @@ def execute(arguments, port):
         if arguments.html:
             html(figs)
 
-
-test = load_from_pickle("testData_Square.pickle")
-plot_waveform(test[1])
-
 arguments = processArguments()
 port = initializePort(arguments.port)
+filename = input("Enter Filename for Figures and Protocol: ")
 execute(arguments, port)
