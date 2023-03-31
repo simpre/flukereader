@@ -6,9 +6,16 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
+import os
 
 from matplotlib.ticker import EngFormatter # for make labels of the axis nice
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)# to make grid layout of the axis nice
+
+#some config variables
+save_dat = False
+save_pickle = True
+path_protocol = "Protocol.txt"
+
 
 
 def processArguments():
@@ -142,6 +149,42 @@ def identify(port):
     print("Build Date: " + time.strftime("%B %d, %Y", date))
 
 
+def write_identify(port, filehandler):
+    # get Data of Measurementent Device:
+    sendCommand(port, "ID")
+    identity = bytearray()
+    while True:
+        byte = port.read()
+        if len(byte) != 1:
+            print("error: timeout while receiving data")
+            exit(1)
+        if byte[0] == ord('\r'):
+            break;
+        identity.append(byte[0])
+
+    identity = identity.split(b';')
+    if len(identity) != 4:
+        print("error: unable to decode identity string")
+        exit(1)
+    model = identity[0].decode()
+    firmware = identity[1].decode()
+    date = time.strptime(identity[2].decode(), "%Y-%m-%d")
+    languages = identity[3].decode()
+    filehandler.write("Model: " + model + "\n")
+    filehandler.write("Version: " + firmware + "\n")
+
+
+def write_measurements(measurements,filehandler):
+    filehandler.write("\n***** Measurement Details *****\n")
+    for i, measurement in enumerate(measurements):
+        filehandler.write("Measurement #{}:\n".format(i))
+        filehandler.write("Measurement Name\t\t: {}\n".format(measurement.name))
+        filehandler.write("Measurement Source\t\t: {}\n".format(measurement.source))
+        filehandler.write("Measurement Type\t\t: {}\n".format(measurement.measurand, measurement.type))
+        filehandler.write("Measurement Value\t\t: {} {}\n".format(measurement.value, measurement.unit))
+        filehandler.write("Measurement Precision\t: \u00B1 {} {}\n\n".format(measurement.precision, measurement.unit))
+
+
 def dateTime(port):
     datetime = time.localtime(time.time() + 1)
     print("Setting time of ScopeMeter...", end="", flush=True)
@@ -245,7 +288,8 @@ def save_to_pickle(data, filename ):
     """"
     Saves data as pickled file
     """
-    with open(filename+".pickle", "x") as f:
+    path_pickle = os.path.join(path_dir,"figure.pickle")
+    with open(path_pickle, "xb") as f:
         pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -254,7 +298,7 @@ def load_from_pickle(file):
     Load Objects from pickled File
     """
     with open(file, "rb") as f:
-        return pickle.load(f )
+        return pickle.load(f)
 
 
 def save_waveform_json(waveform, path):
@@ -310,6 +354,49 @@ def plot_waveform(waveform):
     print("Showing grabed Graph, to continue close matplotlib window")
     plt.show(block=True)
 
+
+def plot_waveforms(waveforms, save=True):
+    """
+    :param waveforms: list of waveforms
+    :return: nothing
+    """
+    plt.ion()
+    fig, ax = plt.subplots()
+
+    axes = []
+
+    for i, waveform in enumerate(waveforms):
+
+        # for first waveform
+        if i == 0 :
+            axis = ax  # our base axis on the right side
+            axis.set_xlabel(waveform.x_unit)
+        else:
+            axis = ax.twinx()  # additional axis on the right side
+
+        axis.set_ylabel(waveform.y_unit)
+        axis.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[0] for i in waveform.samples], color = "C{}".format(i))
+
+        # formatting the x - Axis (As all Graphs share the same time this has only to be done once)
+        if i == 0:
+            x_formatter = EngFormatter(unit=waveform.x_unit, sep='\n')
+            axis.xaxis.set_major_formatter(x_formatter)
+            axis.xaxis.set_major_locator(MultipleLocator(waveform.x_scale))
+
+        #formatting the y - Axis
+        y_formatter = EngFormatter(unit=waveform.y_unit)
+        axis.yaxis.set_major_formatter(y_formatter)
+        axis.yaxis.set_major_locator(MultipleLocator(waveform.y_scale))
+        axis.legend(waveform.title)
+
+    ax.grid(which='major', color='#CCCCCC', linestyle=':')
+    plt.draw()
+    plt.pause(0.1)
+    print("Showing grabed Graph, to continue close matplotlib window")
+    if save:
+        path_fig = os.path.join(path_dir, "Plot.pdf")
+        plt.savefig(path_fig)
+    plt.show(block=True)
 
 def screenshot(port):
     print("Downloading screenshot from ScopeMeter...", end="", flush=True)
@@ -699,8 +786,8 @@ def waveforms(port):
                 data.trace_type = "trace"
         else:
             data.trace_type = trace_type
-        plot_waveform(data)
         waveforms.append(data)
+
 
     # We are doing a dual channel power calculation
     if waveform_type == 5 or waveform_type == 8:
@@ -789,14 +876,15 @@ def waveforms(port):
                                 + "_" + waveforms[i].trace_type.lower().replace(' ', '-') \
                                 + "_" + waveforms[i].x_unit \
                                 + "-vs-" + waveforms[i].y_unit.replace('/', 'per')
-        datFile = open(waveforms[i].filename + ".dat", 'w')
-        for j in range(waveforms[i].samples.shape[0]):
-            datFile.write("{:.5e}".format(
+        if save_dat:
+            datFile = open(waveforms[i].filename + ".dat", 'w')
+            for j in range(waveforms[i].samples.shape[0]):
+                datFile.write("{:.5e}".format(
                 waveforms[i].x_zero + j * waveforms[i].delta_x))
             for k in range(waveforms[i].samples.shape[1]):
                 datFile.write(" {:.5e}".format(waveforms[i].samples[j][k]))
             datFile.write("\n")
-        datFile.close()
+            datFile.close()
 
         waveforms[i].title = input("Enter title for waveform #{:d}: ".format(i))
 
@@ -804,10 +892,12 @@ def waveforms(port):
 
 
 class measurement_t:
-    source = ""
-    units = ""
-    value = 0.0
     name = ""
+    source = ""
+    measurand = ""
+    type = ""
+    unit = ""
+    value = 0.0
     precision = 0.0
 
 
@@ -958,6 +1048,8 @@ def measurement(port):
         measurement.source = sources[reading.source]
         measurement.unit = units[reading.unit]
         measurement.precision = reading.resolution
+        measurement.measurand = nos[reading.no]
+        measurement.type = types[reading.thetype]
 
         print("Fetching reading from ScopeMeter...", end="", flush=True)
         sendCommand(port, "QM {:d}".format(reading.no))
@@ -1029,6 +1121,9 @@ def measurements(port):
 def figure(port):
     figure = figure_t()
     figure.waveforms = waveforms(port)
+
+    plot_waveforms(figure.waveforms)
+
     figure.measurements = measurements(port)
     figure.filename = \
         figure.waveforms[0].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
@@ -1043,7 +1138,8 @@ def figure(port):
         print("     Units: {:s} vs {:s}".format(data.x_unit, data.y_unit))
         print(data.timestamp.strftime(" Timestamp: %H:%M:%S on %B %d, %Y"))
         print("      Size: {:d}".format(data.samples.shape[0]))
-        print("  Filename: {:s}".format(data.filename))
+        # dont print filename as new filenamesystem is implemented
+        #print("  Filename: {:s}".format(data.filename))
 
     names = []
     nameLength = 0
@@ -1069,19 +1165,9 @@ def figure(port):
             values[i]))
     print("└{1:─<{0:d}}┴{3:─<{2:d}}┘".format(nameLength, "", valueLength, ""))
 
-    #save Measurements to file
-    global filename
-    with open(filename + '.txt', 'a') as f:
-        f.write("Measurements: \n ")
-        f.write("\n***** Measurement Details *****")
-        f.write("┌{1:─<{0:d}}┬{3:─<{2:d}}┐".format(nameLength, "", valueLength, "")) #  here happend an error
-        for i in range(len(figure.measurements)):
-            f.write("│{1: >{0:d}}│{3: <{2:d}}│".format(
-                nameLength,
-                names[i],
-                valueLength,
-                values[i]))
-        f.write("└{1:─<{0:d}}┴{3:─<{2:d}}┘".format(nameLength, "", valueLength, ""))
+    global path_protocol
+    with open(path_protocol, 'a') as f:
+        write_measurements(figure.measurements, f )
 
     return figure
 
@@ -1514,39 +1600,16 @@ def execute(arguments, port):
         screenshot(port)
 
     if arguments.pickle:
-        global filename
-        with open(filename+'.txt' , 'a' ) as f:
-            f.write("Measurement Protocol: \n ")
-            # get Data of Measurementent Device:
-            sendCommand(port, "ID")
-            identity = bytearray()
-            while True:
-                byte = port.read()
-                if len(byte) != 1:
-                    print("error: timeout while receiving data")
-                    exit(1)
-                if byte[0] == ord('\r'):
-                    break;
-                identity.append(byte[0])
-
-            identity = identity.split(b';')
-            if len(identity) != 4:
-                print("error: unable to decode identity string")
-                exit(1)
-            model = identity[0].decode()
-            firmware = identity[1].decode()
-            date = time.strptime(identity[2].decode(), "%Y-%m-%d")
-            languages = identity[3].decode()
-            f.write("Model: " + model + "\n")
-            f.write("Version: " + firmware + "\n")
-            #usercomment about measurement
-            f.write("User Comment: \n {} \n".format(input("Comments about Measurement: ")))
-
         fig = figure(port)
+        #plot waveforms
+        print("waveforms")
+        #save measurements
+        print("measurements")
+
         save = input("Save Waveform data as pickle ?(blank to discard): ")
-        if len(save) == 0:
-            return None
-        save_to_pickle(fig,filename)
+        if not (len(save) == 0):
+            save_to_pickle(fig,filename)
+
 
     if arguments.tex or arguments.html:
         figs = figures(port)
@@ -1555,7 +1618,22 @@ def execute(arguments, port):
         if arguments.html:
             html(figs)
 
+
 arguments = processArguments()
 port = initializePort(arguments.port)
+
+#save metadata of measurement
 filename = input("Enter Filename for Figures and Protocol: ")
+basedir = os.getcwd()
+path_dir = os.path.join(basedir, "Measurements/{}".format(filename))
+path_protocol = os.path.join(path_dir, "Protocol.txt")
+os.mkdir(path_dir)
+
+with open(path_protocol, 'a') as f:
+    f.write("Measurement Protocol: \n")
+    write_identify(port, f)
+    # usercomment about measurement
+    f.write("User Comment: \n {} \n".format(input("Comments about Measurement: ")))
+
+#doing the measurements
 execute(arguments, port)

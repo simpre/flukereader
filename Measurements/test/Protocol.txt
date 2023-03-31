@@ -1,0 +1,28 @@
+Measurement Protocol: 
+Model: FLUKE 199C
+Version: V08.04
+User Comment: 
+ Test Measurement with signal generator 
+
+***** Measurement Details *****
+Measurement #0:
+Measurement Name		: Arb Signal
+Measurement Source		: Input A
+Measurement Type		: Reading 1
+Measurement Value		: 0.193 V
+Measurement Precision	: ± 0.001 V
+
+Measurement #1:
+Measurement Name		: Arb signal
+Measurement Source		: Input A
+Measurement Type		: Reading 2
+Measurement Value		: 0.026000000000000002 V
+Measurement Precision	: ± 0.0001 V
+
+Measurement #2:
+Measurement Name		: Cursor Sync Amplitude
+Measurement Source		: Input B
+Measurement Type		: Cursor Relative Amplitude
+Measurement Value		: 3.32 V
+Measurement Precision	: ± 0.04 V
+
