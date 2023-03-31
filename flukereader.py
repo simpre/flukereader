@@ -11,6 +11,9 @@ import os
 from matplotlib.ticker import EngFormatter # for make labels of the axis nice
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)# to make grid layout of the axis nice
 
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 #some config variables
 save_dat = False
 save_pickle = True
@@ -180,7 +183,7 @@ def write_measurements(measurements,filehandler):
         filehandler.write("Measurement #{}:\n".format(i))
         filehandler.write("Measurement Name\t\t: {}\n".format(measurement.name))
         filehandler.write("Measurement Source\t\t: {}\n".format(measurement.source))
-        filehandler.write("Measurement Type\t\t: {}\n".format(measurement.measurand, measurement.type))
+        filehandler.write("Measurement Type\t\t: {} {}\n".format(measurement.measurand, measurement.type))
         filehandler.write("Measurement Value\t\t: {} {}\n".format(measurement.value, measurement.unit))
         filehandler.write("Measurement Precision\t: \u00B1 {} {}\n\n".format(measurement.precision, measurement.unit))
 
@@ -360,22 +363,27 @@ def plot_waveforms(waveforms, save=True):
     :param waveforms: list of waveforms
     :return: nothing
     """
+    if waveforms == None:
+        return None
+
     plt.ion()
     fig, ax = plt.subplots()
 
-    axes = []
+    lines = []
+
 
     for i, waveform in enumerate(waveforms):
 
         # for first waveform
         if i == 0 :
             axis = ax  # our base axis on the right side
-            axis.set_xlabel(waveform.x_unit)
+            #axis.set_xlabel(waveform.x_unit)
         else:
             axis = ax.twinx()  # additional axis on the right side
 
-        axis.set_ylabel(waveform.y_unit)
-        axis.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[0] for i in waveform.samples], color = "C{}".format(i))
+        axis.set_ylabel(waveform.title)
+        line = axis.plot([x * waveform.delta_x for x in range(0, len(waveform.samples))], [i[0] for i in waveform.samples], color = "C{}".format(i), label=waveform.title)
+        lines.append(line[0])
 
         # formatting the x - Axis (As all Graphs share the same time this has only to be done once)
         if i == 0:
@@ -387,7 +395,12 @@ def plot_waveforms(waveforms, save=True):
         y_formatter = EngFormatter(unit=waveform.y_unit)
         axis.yaxis.set_major_formatter(y_formatter)
         axis.yaxis.set_major_locator(MultipleLocator(waveform.y_scale))
-        axis.legend(waveform.title)
+
+    labels = [l.get_label() for l in lines]
+
+    plt.legend(lines, labels, bbox_to_anchor=(0., 1.02, 1., .102), loc=3,
+               ncol=2, mode="expand", borderaxespad=0.)
+
 
     ax.grid(which='major', color='#CCCCCC', linestyle=':')
     plt.draw()
@@ -549,12 +562,12 @@ def si(number, precision, unit):
     number = float(number) / (1000.0 ** degree_var)
 
     if precision == 0:
-        return "{:.0f} {:s}{:s}".format(
+        return "{:.0f} {:s}{:s}".format(
             number,
             prefix(degree_var),
             unit)
     else:
-        return "({1:.{0:d}f} ± {2:.{0:d}f}) {3:s}{4:s}".format(
+        return "({1:.{0:d}f} ± {2:.{0:d}f}) {3:s}{4:s}".format(
             significantDigits,
             number,
             precision,
@@ -1125,9 +1138,9 @@ def figure(port):
     plot_waveforms(figure.waveforms)
 
     figure.measurements = measurements(port)
-    figure.filename = \
-        figure.waveforms[0].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
-        + '_' + figure.title.replace(' ', '_').lower()
+    #figure.filename = \
+    #    figure.waveforms[0].timestamp.strftime("%Y-%m-%d-%H-%M-%S") \
+    #    + '_' + figure.title.replace(' ', '_').lower()
 
     print("\n***** Figure “{:s}” *****".format(figure.title))
 
@@ -1601,14 +1614,7 @@ def execute(arguments, port):
 
     if arguments.pickle:
         fig = figure(port)
-        #plot waveforms
-        print("waveforms")
-        #save measurements
-        print("measurements")
-
-        save = input("Save Waveform data as pickle ?(blank to discard): ")
-        if not (len(save) == 0):
-            save_to_pickle(fig,filename)
+        save_to_pickle(fig,filename)
 
 
     if arguments.tex or arguments.html:
@@ -1617,6 +1623,12 @@ def execute(arguments, port):
             tex(figs)
         if arguments.html:
             html(figs)
+
+#just to test graphing
+
+#fig = load_from_pickle("Measurements/test/figure.pickle")
+#plot_waveforms(fig.waveforms)
+
 
 
 arguments = processArguments()
@@ -1630,10 +1642,25 @@ path_protocol = os.path.join(path_dir, "Protocol.txt")
 os.mkdir(path_dir)
 
 with open(path_protocol, 'a') as f:
-    f.write("Measurement Protocol: \n")
     write_identify(port, f)
+    date_string = time.strftime("%d.%m.%Y", time.localtime())
+    time_string = time.strftime("%H:%M:%S", time.localtime())
+
+    f.write("Measurement Date : {}\n".format(date_string))
+    f.write("Measurement Time : {}\n".format(time_string))
+
     # usercomment about measurement
-    f.write("User Comment: \n {} \n".format(input("Comments about Measurement: ")))
+    print("Measurement Comments: \n")
+    f.write("****Comments about Measurement:****")
+    f.write("User Comment: \n")
+    while True:
+
+        in_str = input()
+        if in_str == "":
+            break
+        else:
+            f.write("{}\n".format(in_str))
+    f.write("****End of Comments****")
 
 #doing the measurements
 execute(arguments, port)
