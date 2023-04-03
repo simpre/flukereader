@@ -14,6 +14,10 @@ The best option currently is to run it with the -k option, thats the one i devel
 
 It's possible to save the measured data as pickle to restore and plot them later. Furthermore a small measurement protocol is saved with the results.
 
+# Adapter Board 
+A case for the Adapter can be found here: https://www.thingiverse.com/thing:5948643 
+
+However, i don't have the schematics of the adapter, but it's just an IR LED & IR Phototransistor with 800nm connected to an USB <-> UART Converter with some resistors. 
 
 # ToDo  
 - Save measuremnts and plot data in human readable format
