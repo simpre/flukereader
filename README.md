@@ -7,9 +7,8 @@ https://eddie.isatec.ca/2015/12/29/talking-to-my-scopemeter.html
 
 As i couldn't get the makefile to to generate the plots working correctly my goal is to improve the file export and add an plot function with matplotlib
 
-Image of a Plot generated with this tool : 
 
-[Plot.pdf](https://github.com/simpre/flukereader/files/11138805/Plot.pdf)
+two example measurements could be found in the Measurement folder. 
 
 The best option currently is to run it with the -k option, thats the one i develop curently. 
 
