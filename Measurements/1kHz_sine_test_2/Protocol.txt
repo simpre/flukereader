@@ -1,0 +1,24 @@
+Model: FLUKE 199C
+Version: V08.04
+Measurement Date : 31.03.2023
+Measurement Time : 20:27:15
+****Comments about Measurement:****User Comment: 
+Source: 2.2 Vpp signal generator , 1kHz
+Input: In-Amp inverted 
+HV 12V in, 200V out
+****End of Comments****
+***** Measurement Details *****
+Measurement #0:
+Measurement Name		: Input
+Measurement Source		: Input A
+Measurement Type		: Reading 1 Peak to Peak
+Measurement Value		: 2.19 V
+Measurement Precision	: ± 0.01 V
+
+Measurement #1:
+Measurement Name		: Output
+Measurement Source		: Input B
+Measurement Type		: Reading 2 Peak to Peak
+Measurement Value		: 352.0 V
+Measurement Precision	: ± 1.0 V
+
